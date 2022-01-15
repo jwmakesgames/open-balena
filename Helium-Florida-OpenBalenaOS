@@ -1,0 +1,1348 @@
+* text=auto
+
+*.erl text eol=lf
+*.hrl text eol=lf
+*.c text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.md text eol=lf
+*.org text eol=lf
+
+_build
+.buildkite/
+
+# Auto detect text files and perform LF normalization
+* text=auto
+
+.rebar3
+_*
+.eunit
+*.o
+*.beam
+*.plt
+*.swp
+*.swo
+.erlang.cookie
+ebin
+log
+erl_crash.dump
+.rebar
+logs
+_build
+.idea
+*.iml
+rebar3.crashdump
+data
+.#*
+\#*
+src/pb
+
+#!/bin/sh
+
+parallel -k --tagstring miner{} _build/testdev\+miner{}/rel/miner{}/bin/miner{} $@ ::: 1 2 3 4 5 6 7 8
+
+
+#!/bin/sh
+
+NODE=$1
+shift
+
+./_build/testdev\+miner${NODE}/rel/miner${NODE}/bin/miner${NODE} $@
+
+# How to Contribute to this repository #
+
+We value contributions from the community and will do everything we
+can go get them reviewed in a timely fashion. If you have code to send
+our way or a bug to report:
+
+* **Contributing Code**: If you have new code or a bug fix, fork this
+  repo, create a logically-named branch, and [submit a PR against this
+  repo](https://github.com/helium/miner/issues). Include a
+  write up of the PR with details on what it does.
+
+* **Reporting Bugs**: Open an issue [against this
+  repo](https://github.com/helium/miner/issues) with as much
+  detail as you can. At the very least you'll include steps to
+  reproduce the problem.
+
+This project is intended to be a safe, welcoming space for
+collaboration, and contributors are expected to adhere to the
+[Contributor Covenant Code of
+Conduct](http://contributor-covenant.org/).
+
+Above all, thank you for taking the time to be a part of the Helium community.
+
+ARG BUILDER_IMAGE=erlang:24-alpine
+ARG RUNNER_IMAGE=alpine
+FROM ${BUILDER_IMAGE} as deps-compiler
+
+ARG REBAR_DIAGNOSTIC=0
+ENV DIAGNOSTIC=${REBAR_DIAGNOSTIC}
+
+ARG REBAR_BUILD_TARGET
+ARG TAR_PATH=_build/$REBAR_BUILD_TARGET/rel/*/*.tar.gz
+ARG EXTRA_BUILD_APK_PACKAGES
+
+RUN apk add --no-cache --update \
+    git tar build-base linux-headers autoconf automake libtool pkgconfig \
+    dbus-dev bzip2 bison flex gmp-dev cmake lz4 libsodium-dev openssl-dev \
+    sed wget curl \
+    ${EXTRA_BUILD_APK_PACKAGES}
+
+# Install Rust toolchain
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+WORKDIR /usr/src/miner
+
+ENV CC=gcc CXX=g++ CFLAGS="-U__sun__" \
+    ERLANG_ROCKSDB_OPTS="-DWITH_BUNDLE_SNAPPY=ON -DWITH_BUNDLE_LZ4=ON" \
+    ERL_COMPILER_OPTIONS="[deterministic]" \
+    PATH="/root/.cargo/bin:$PATH" \
+    RUSTFLAGS="-C target-feature=-crt-static"
+
+# Add and compile the dependencies to cache
+COPY ./rebar* ./
+
+RUN ./rebar3 compile
+
+FROM deps-compiler as builder
+
+ARG VERSION
+ARG REBAR_DIAGNOSTIC=0
+# default to building for mainnet
+ARG BUILD_NET=mainnet
+ENV DIAGNOSTIC=${REBAR_DIAGNOSTIC}
+
+ARG REBAR_BUILD_TARGET
+ARG TAR_PATH=_build/$REBAR_BUILD_TARGET/rel/*/*.tar.gz
+
+# Now add our code
+COPY . .
+
+RUN ./rebar3 as ${REBAR_BUILD_TARGET} tar -n miner -v ${VERSION}
+
+RUN mkdir -p /opt/docker/update
+RUN tar -zxvf ${TAR_PATH} -C /opt/docker
+RUN wget -O /opt/docker/update/genesis https://snapshots.helium.wtf/genesis.${BUILD_NET}
+
+FROM ${RUNNER_IMAGE} as runner
+
+ARG VERSION
+ARG EXTRA_RUNNER_APK_PACKAGES
+
+RUN apk add --no-cache --update ncurses dbus libsodium libstdc++ \
+                                ${EXTRA_RUNNER_APK_PACKAGES}
+
+RUN ulimit -n 64000
+
+WORKDIR /opt/miner
+
+ENV COOKIE=miner \
+    # Write files generated during startup to /tmp
+    RELX_OUT_FILE_PATH=/tmp \
+    # add miner to path, for easy interactions
+    PATH=$PATH:/opt/miner/bin
+
+COPY --from=builder /opt/docker /opt/miner
+
+RUN ln -sf /opt/miner/releases/${VERSION} /config
+
+ENTRYPOINT ["/opt/miner/bin/miner"]
+CMD ["foreground"]
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   Copyright 2018, Helium Systems Inc.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+
+.PHONY: deps compile test typecheck cover
+
+REBAR=./rebar3
+VAL_VERSION=$(shell git describe --abbrev=0 | sed -e 's,validator,,')
+ifeq ($(BUILDKITE), true)
+  # get branch name and replace any forward slashes it may contain
+  CIBRANCH=$(subst /,-,$(BUILDKITE_BRANCH))
+else
+  CIBRANCH=$(shell git rev-parse --abbrev-ref HEAD | sed 's/\//-/')
+endif
+
+all: compile
+
+deps:
+	$(REBAR) get-deps
+
+compile:
+	$(REBAR) compile
+
+clean:
+	$(REBAR) clean
+
+test: compile
+	$(REBAR) as test do eunit, ct --verbose
+
+typecheck:
+	$(REBAR) dialyzer xref
+
+ci: compile
+	$(REBAR) do dialyzer,xref && ($(REBAR) do eunit,ct || (mkdir -p artifacts; tar --exclude='./_build/test/lib' --exclude='./_build/test/plugins' -czf artifacts/$(CIBRANCH).tar.gz _build/test; false))
+
+release:
+	$(REBAR) as prod release -n miner
+
+validator:
+	$(REBAR) as validator release -n miner -v $(VAL_VERSION)
+
+cover:
+	$(REBAR) cover
+
+aws:
+	$(REBAR) as aws release
+
+seed:
+	$(REBAR) as seed release
+
+docker:
+	$(REBAR) as docker release
+
+devrel:
+	$(REBAR) as testdev, miner1 release -n miner1
+	$(REBAR) as testdev, miner2 release -n miner2
+	$(REBAR) as testdev, miner3 release -n miner3
+	$(REBAR) as testdev, miner4 release -n miner4
+	$(REBAR) as testdev, miner5 release -n miner5
+	$(REBAR) as testdev, miner6 release -n miner6
+	$(REBAR) as testdev, miner7 release -n miner7
+	$(REBAR) as testdev, miner8 release -n miner8
+
+devrelease:
+	$(REBAR) as dev release
+
+
+#!/bin/bash
+N=8
+N2=$(( $N * 2))
+while true; do
+    #RAND=`date +%N|sed s/...$//`
+    RAND=$RANDOM
+    ## sleep up to 20 seconds
+    sleep "$(( $RAND % 20))"
+    export I=$(expr $RAND % $N2 + 1)
+    ## 50 percent chance of stopping
+    ## 50 percent chance of kill -9
+    if [ $I -lt 9 ]; then
+        ./cmd.sh $I stop
+    else
+        export I=$(( $I - $N))
+        if [ "$(./cmd.sh $I ping)" = "pong" ]; then
+            MURDERPID=$(./cmd.sh $I eval 'list_to_integer(os:getpid()).')
+            kill -9 $MURDERPID
+        fi
+    fi
+    while [ "$(./cmd.sh $I ping)" = "pong" ]; do
+        sleep 1
+    done
+    ## 80% chance of restarting things
+    if [ $(expr $RAND % 5) -ne 0 ]; then
+        ./cmd.sh $I start
+    fi
+done
+
+[![Build Status](https://badge.buildkite.com/a2ced4f1160fa02aa8b735e7edb80f8ef787a299963ff88942.svg?branch=master)](https://buildkite.com/helium/miner)
+
+# miner quickstart
+
+Miner for helium blockchain
+
+## Build
+
+    $ make
+
+## Typecheck
+
+    $ make typecheck
+
+## Test
+
+    $ make test
+
+# docker
+
+Build a miner-test image locally:
+
+```bash
+docker build -t helium:miner-test -f .buildkite/scripts/Dockerfile-xxxNN .
+```
+
+Note that Miner for AMD64 requires AVX support on the processor due to the erasure library.
+
+It is possible to build ARM64 images from an AMD64 machine. Install the following:
+
+```bash
+sudo apt-get install qemu binfmt-support qemu-user-static # Install the qemu packages
+```
+
+## Installing Miner from Source
+
+### AMD64 (AMD/Intel)
+
+You need a processor with `avx` extensions. You can check this exists by running the following- if it is empty, your processor doesn't support AVX.
+```bash
+grep avx /proc/cpuinfo
+```
+Next, install [git](https://git-scm.com/) and build dependencies.
+
+```bash
+apt install -y git erlang libdbus-1-dev autoconf automake libtool flex libgmp-dev cmake libsodium-dev libssl-dev bison libsnappy-dev libclang-dev doxygen vim build-essential cargo parallel
+```
+
+Clone the git repository:
+
+```bash
+git clone https://github.com/helium/miner.git
+```
+
+And build:
+```bash
+cd miner/
+make release
+```
+
+### ARM (Raspbian) Install
+
+Miner has been tested against Erlang OTP 22 and 23. Follow [this PR](https://github.com/helium/miner/pull/655) for progress on Erlang OTP 24 support. 
+
+To install OTP 21.1.6 in Raspian, we'll first acquire the Erlang package from [Erlang Solutions](https://www.erlang-solutions.com/resources/download.html):
+
+```bash
+wget https://packages.erlang-solutions.com/erlang/debian/pool/esl-erlang_22.1.6-1~raspbian~buster_armhf.deb
+```
+
+Now we'll install various other dependencies and then install Erlang itself. You'll see some errors after running `dpkg`, you can ignore them:
+
+```bash
+sudo apt-get install libdbus-1-dev autoconf automake libtool flex libgmp-dev cmake libsodium-dev libssl-dev bison libsnappy-dev libclang-dev doxygen make
+sudo dpkg -i esl-erlang_22.1.6-1~raspbian~buster_armhf.deb
+sudo apt-get install -f
+```
+
+Clone the git repository:
+
+```bash
+git clone https://github.com/helium/miner.git
+```
+
+Now it's time to build the miner. This will take a while:
+
+```bash
+cd miner
+make release
+```
+
+
+# Helium-Florida
+ Helium-Florida-Helim-Miner-Clone
+
+%% -*- erlang -*-
+{erl_opts, [
+            debug_info,
+            {parse_transform, lager_transform},
+            {i, "./_build/default/plugins/gpb/include"}
+           ]}.
+
+{cover_export_enabled, true}.
+{cover_enabled, true}.
+
+{deps, [
+        {blockchain, {git, "https://github.com/helium/blockchain-core.git",
+                      {branch, "master"}}},
+        {sibyl, {git, "https://github.com/helium/sibyl.git",
+                      {branch, "master"}}},
+        {hbbft, {git, "https://github.com/helium/erlang-hbbft.git",
+                 {branch, "master"}}},
+        {dkg, {git, "https://github.com/helium/erlang-dkg.git", {branch, "master"}}},
+        {ecc508, {git, "https://github.com/helium/ecc508.git", {branch, "master"}}},
+        {ebus, {git, "https://github.com/helium/ebus.git", {branch, "master"}}},
+        {jsx, "3.1.0"},
+        {kvc, {git, "https://github.com/etrepum/kvc", {tag, "v1.7.0"}}},
+        {longfi, {git, "https://github.com/helium/longfi-erlang", {tag, "0.2.1"}}},
+        recon,
+        {elli, "3.3.0"},
+        {jsonrpc2, {git, "https://github.com/zuiderkwast/jsonrpc2-erlang",
+                 {branch, "master"}}}
+       ]}.
+
+{xref_checks, [
+               undefined_function_calls,
+               undefined_functions,
+               %locals_not_used,
+               deprecated_function_calls,
+               deprecated_functions
+              ]}.
+
+{plugins, [
+           {rebar3_gpb_plugin, "2.15.0"},
+           {rebar3_eqc, "1.3.0"}
+          ]}.
+
+{gpb_opts, [
+    {i, "src"},
+    {o_erl, "src/pb"},
+    {o_hrl, "src/pb"},
+    {msg_name_prefix, "miner_"},
+    {msg_name_suffix, "_pb"},
+    {module_name_suffix, "_pb"},
+    {strings_as_binaries, false},
+    type_specs
+]}.
+
+{provider_hooks, [
+    {pre, [
+        {compile, {protobuf, compile}},
+        {clean, {protobuf, clean}}
+    ]}
+]}.
+
+{relx, [
+        {release, {'miner', git},
+         [miner, runtime_tools, tools, recon]},
+        {overlay,
+         [
+          {copy, "scripts/extensions/genesis", "bin/extensions/genesis"},
+          {copy, "scripts/extensions/hbbft", "bin/extensions/hbbft"},
+          {copy, "scripts/extensions/info", "bin/extensions/info"},
+          {copy, "scripts/extensions/dkg", "bin/extensions/dkg"},
+          {copy, "scripts/extensions/authorize", "bin/extensions/authorize"},
+          {copy, "scripts/extensions/print_keys", "bin/extensions/print_keys"},
+          {copy, "./_build/default/lib/blockchain/scripts/extensions/peer", "bin/extensions/peer"},
+          {copy, "./_build/default/lib/blockchain/scripts/extensions/snapshot", "bin/extensions/snapshot"},
+          {copy, "./_build/default/lib/blockchain/scripts/extensions/ledger", "bin/extensions/ledger"},
+          {copy, "./_build/default/lib/blockchain/scripts/extensions/trace", "bin/extensions/trace"},
+          {copy, "./_build/default/lib/blockchain/scripts/extensions/txn", "bin/extensions/txn"},
+          {copy, "./_build/default/lib/blockchain/scripts/extensions/repair", "bin/extensions/repair"},
+          {template, "config/vm.args", "{{output_dir}}/releases/{{release_version}}/vm.args"}
+         ]},
+        {extended_start_script_hooks,
+         [
+          {post_start,
+           [
+            {wait_for_process, blockchain_worker}
+           ]}
+         ]},
+        {extended_start_script, true},
+        {extended_start_script_extensions,
+         [
+          {genesis, "extensions/genesis"},
+          {hbbft, "extensions/hbbft"},
+          {peer, "extensions/peer"},
+          {snapshot, "extensions/snapshot"},
+          {ledger, "extensions/ledger"},
+          {info, "extensions/info"},
+          {trace, "extensions/trace"},
+          {txn, "extensions/txn"},
+          {dkg, "extensions/dkg"},
+          {authorize, "extensions/authorize"},
+          {repair, "extensions/repair"},
+          {print_keys, "extensions/print_keys"}
+         ]},
+        {dev_mode, true},
+        {include_erts, false}
+       ]}.
+
+{profiles, [
+            %% for test and run.sh
+            {testdev,
+             [
+              {relx, [
+                      {sys_config, "./config/test.config"},
+                      {overlay,
+                       [{copy, "config/sys.config", "config/sys.config"}]},
+                      {dev_mode, true},
+                      {include_erts, false}]
+              }]},
+            %% for syncing local miners
+            {dev,
+             [
+              {relx, [
+                      {release, {'miner', git},
+                       [miner, observer, runtime_tools, tools,wx, recon]},
+                      {sys_config, "./config/dev.config"},
+                      {overlay,
+                       [{copy, "config/sys.config", "config/sys.config"}]},
+                      {dev_mode, true},
+                      {include_erts, false}]
+              }]},
+            {aws, [
+                   {relx, [
+                           {sys_config, "./config/aws.config"},
+                           {overlay,
+                            [{copy, "config/sys.config", "config/sys.config"}]},
+                           {dev_mode, true},
+                           {include_erts, false}]}]
+            },
+            {seed, [
+                   {relx, [
+                           {sys_config, "./config/seed.config"},
+                           {overlay,
+                            [{copy, "config/sys.config", "config/sys.config"}]},
+                           {dev_mode, true},
+                           {include_erts, false}]}]
+            },
+            {docker, [
+              {relx, [
+                {release, {miner, git},
+                  [miner,
+                    tools,
+                    runtime_tools,
+                    recon]},
+                {sys_config, "./config/docker.config"},
+                {overlay,
+                  [{copy, "config/sys.config", "config/sys.config"}]},
+                {dev_mode, false},
+                {include_src, false},
+                {include_erts, true}]}]
+            },
+            {miner1, [{relx, [{release, {'miner1', git}, [miner, observer, runtime_tools, tools, wx, recon]},
+                              {sys_config, "./config/test.config"},
+                              {overlay,
+                               [{template, "config/vm_dev.args",
+                                 "{{output_dir}}/releases/{{release_version}}/vm.args"}]}]}]},
+            {miner2, [{relx, [{release, {'miner2', git}, [miner, observer, runtime_tools, tools, wx, recon]},
+                              {sys_config, "./config/test.config"},
+                              {overlay,
+                               [{template, "config/vm_dev.args",
+                                 "{{output_dir}}/releases/{{release_version}}/vm.args"}]}]}]},
+            {miner3, [{relx, [{release, {'miner3', git}, [miner, observer, runtime_tools, tools, wx, recon]},
+                              {sys_config, "./config/test.config"},
+                              {overlay,
+                               [{template, "config/vm_dev.args",
+                                 "{{output_dir}}/releases/{{release_version}}/vm.args"}]}]}]},
+            {miner4, [{relx, [{release, {'miner4', git}, [miner, observer, runtime_tools, tools, wx, recon]},
+                              {sys_config, "./config/test.config"},
+                              {overlay,
+                               [{template, "config/vm_dev.args",
+                                 "{{output_dir}}/releases/{{release_version}}/vm.args"}]}]}]},
+            {miner5, [{relx, [{release, {'miner5', git}, [miner, observer, runtime_tools, tools, wx, recon]},
+                              {sys_config, "./config/test.config"},
+                              {overlay,
+                               [{template, "config/vm_dev.args",
+                                 "{{output_dir}}/releases/{{release_version}}/vm.args"}]}]}]},
+            {miner6, [{relx, [{release, {'miner6', git}, [miner, observer, runtime_tools, tools, wx, recon]},
+                              {sys_config, "./config/test.config"},
+                              {overlay,
+                               [{template, "config/vm_dev.args",
+                                 "{{output_dir}}/releases/{{release_version}}/vm.args"}]}]}]},
+            {miner7, [{relx, [{release, {'miner7', git}, [miner, observer, runtime_tools, tools, wx, recon]},
+                              {sys_config, "./config/test.config"},
+                              {overlay,
+                               [{template, "config/vm_dev.args",
+                                 "{{output_dir}}/releases/{{release_version}}/vm.args"}]}]}]},
+            {miner8, [{relx, [{release, {'miner8', git}, [miner, observer, runtime_tools, tools, wx, recon]},
+                              {sys_config, "./config/test.config"},
+                              {overlay,
+                               [{template, "config/vm_dev.args",
+                                 "{{output_dir}}/releases/{{release_version}}/vm.args"}]}]}]},
+            {prod, [
+                    {relx, [
+                            {release, {miner, git},
+                             [miner,
+                              tools,
+                              runtime_tools,
+                              recon]},
+                            {sys_config, "./config/sys.config"},
+                            {dev_mode, false},
+                            {include_src, false},
+                            {system_libs, false},
+                            {include_erts, false}]}]
+            },
+            {validator,
+             [
+              {relx,
+               [
+                {release, {miner, {semver, "validator"}},
+                 [miner,
+                  tools,
+                  runtime_tools,
+                  recon]},
+                {sys_config_src, "config/val.config.src"},
+                %% {vm_args_src, "config/vm_val.args.src"},
+                {overlay,
+                 [{copy, "config/sys.config", "config/sys.config"},
+                  {template, "config/vm_val.args", "{{output_dir}}/releases/{{release_version}}/vm.args"}]},
+                {dev_mode, false},
+                {include_erts, true},
+                {extended_start_script, true},
+                {include_src, false}]}]
+            },
+            {test_validator,
+             [
+              {relx,
+               [
+                {release, {miner, git},
+                 [miner,
+                  tools,
+                  runtime_tools,
+                  recon]},
+                {sys_config_src, "config/test_val.config.src"},
+                %% {vm_args_src, "config/vm_val.args.src"},
+                {overlay,
+                 [{copy, "config/sys.config", "config/sys.config"},
+                  {template, "config/vm_val.args", "{{output_dir}}/releases/{{release_version}}/vm.args"}]},
+                {dev_mode, false},
+                {include_erts, true},
+                {extended_start_script, true},
+                {include_src, false}]}]
+            },
+            {docker_val, [
+              {relx, [
+                {release, {miner, {semver, "validator"}},
+                  [miner,
+                    tools,
+                    runtime_tools,
+                    recon]},
+                {sys_config_src, "./config/docker-val.config.src"},
+                %% {vm_args_src, "config/vm_val.args.src"},
+                {overlay,
+                 [{copy, "config/sys.config", "config/sys.config"},
+                  {template, "config/vm_val.args", "{{output_dir}}/releases/{{release_version}}/vm.args"}]},
+                {dev_mode, false},
+                {include_src, false},
+                {include_erts, true}]}]
+            },
+            {docker_testval, [
+              {relx, [
+                {release, {miner, {semver, "val"}},
+                  [miner,
+                    tools,
+                    runtime_tools,
+                    recon]},
+                {sys_config_src, "./config/docker-testval.config.src"},
+                %% {vm_args_src, "config/vm_val.args.src"},
+                {overlay,
+                 [{copy, "config/sys.config", "config/sys.config"},
+                  {template, "config/vm_val.args", "{{output_dir}}/releases/{{release_version}}/vm.args"}]},
+                {dev_mode, false},
+                {include_src, false},
+                {include_erts, true}]}]
+            },
+            {docker_testminer, [
+              {relx, [
+                {release, {miner, {semver, "testminer"}},
+                  [miner,
+                    tools,
+                    runtime_tools,
+                    recon]},
+                {sys_config, "./config/miner-testnet.config"},
+                {overlay,
+                  [{copy, "config/sys.config", "config/sys.config"}]},
+                {dev_mode, false},
+                {include_src, false},
+                {include_erts, true}]}]
+            },
+            {test,
+             [
+              {overrides, [{add, blockchain, [{erl_opts, [{d, 'TEST'}]}]}]},
+              {erl_opts, [nowarn_export_all]},
+              {deps, [
+                  {meck, "0.8.12"},
+                  {grpc_client, {git, "https://github.com/Bluehouse-Technology/grpc_client.git", {branch, "master"}}}
+              ]}
+             ]}
+]}.
+
+{ct_opts,
+ [{sys_config, "config/test.config"}]}.
+
+os:putenv("ERLANG_ROCKSDB_OPTS", "-DWITH_BUNDLE_SNAPPY=ON -DWITH_BUNDLE_LZ4=ON"),
+CONFIG.
+{"1.2.0",
+[{<<"acceptor_pool">>,{pkg,<<"acceptor_pool">>,<<"1.0.0">>},2},
+ {<<"backoff">>,{pkg,<<"backoff">>,<<"1.1.6">>},2},
+ {<<"base32">>,{pkg,<<"base32">>,<<"0.1.0">>},4},
+ {<<"base64url">>,{pkg,<<"base64url">>,<<"1.0.1">>},1},
+ {<<"blockchain">>,
+  {git,"https://github.com/helium/blockchain-core.git",
+       {ref,"108be1ea7bb3b454588fac86b15490414b576d68"}},
+  0},
+ {<<"chatterbox">>,
+  {git,"https://github.com/andymck/chatterbox",
+       {ref,"b56a2a08b8a31b7ab0d536e5e8a55d5abe70390f"}},
+  2},
+ {<<"clique">>,
+  {git,"https://github.com/helium/clique.git",
+       {ref,"e4be0dae150061bec080502ed530091672880867"}},
+  1},
+ {<<"cowlib">>,
+  {git,"https://github.com/ninenines/cowlib",
+       {ref,"0f5c2f8922c89c58f51696cce690245cbdc5f327"}},
+  3},
+ {<<"ctx">>,{pkg,<<"ctx">>,<<"0.6.0">>},2},
+ {<<"cuttlefish">>,
+  {git,"https://github.com/helium/cuttlefish.git",
+       {ref,"8672838e8f4ef61602aee6e4ff97ec9be54031dc"}},
+  2},
+ {<<"dep_http2_client">>,
+  {git,"https://github.com/Bluehouse-Technology/http2_client",
+       {ref,"8a6faf3ef1e0f3bb480d52d34ef5181258e99302"}},
+  2},
+ {<<"dkg">>,
+  {git,"https://github.com/helium/erlang-dkg.git",
+       {ref,"93ed01b6464dcbb6504ba90e43a86656a1dcef90"}},
+  0},
+ {<<"e2qc">>,
+  {git,"https://github.com/helium/e2qc",
+       {ref,"d77231471ab93ad38bb6763870917ff9499cdc73"}},
+  1},
+ {<<"ebus">>,
+  {git,"https://github.com/helium/ebus.git",
+       {ref,"e10cee3aa66705d05c38412245c5c78c956e8fd2"}},
+  0},
+ {<<"ecc508">>,
+  {git,"https://github.com/helium/ecc508.git",
+       {ref,"b4d804b00887ceb75b32b12e46542d15af97a527"}},
+  0},
+ {<<"ecc_compact">>,{pkg,<<"ecc_compact">>,<<"1.0.5">>},3},
+ {<<"elli">>,{pkg,<<"elli">>,<<"3.3.0">>},0},
+ {<<"enacl">>,{pkg,<<"enacl">>,<<"1.1.1">>},3},
+ {<<"erasure">>,
+  {git,"https://github.com/helium/erlang-erasure.git",
+       {ref,"c73354ca9914225a825569693dc72db6691d91f1"}},
+  1},
+ {<<"erbloom">>,
+  {git,"https://github.com/Vagabond/erbloom",
+       {ref,"8fc2a5aa2454bca3b57047c0b3f79f8d9d219483"}},
+  2},
+ {<<"erl_angry_purple_tiger">>,
+  {git,"https://github.com/helium/erl_angry_purple_tiger.git",
+       {ref,"c5476b6639314a75a99400c9dfa7603b24a6d18a"}},
+  1},
+ {<<"erl_base58">>,{pkg,<<"erl_base58">>,<<"0.0.1">>},1},
+ {<<"erlang_ale">>,
+  {git,"https://github.com/helium/erlang_ale",
+       {ref,"07e10e656693f07a0d577f3651e76e52680c3768"}},
+  1},
+ {<<"erlang_stats">>,
+  {git,"https://github.com/helium/erlang-stats.git",
+       {ref,"6afc9a78682d367c9312c64e9f0a5bc5477f2cd8"}},
+  1},
+ {<<"erlang_tc">>,
+  {git,"https://github.com/helium/erlang-tc.git",
+       {ref,"f2aa5e1ba9ea3091d6037304e57fa3720102cd55"}},
+  1},
+ {<<"exor_filter">>,
+  {git,"https://github.com/mpope9/exor_filter",
+       {ref,"8f875bc5abc838af9ddbf6e7d2af8cc735ad2810"}},
+  1},
+ {<<"getopt">>,{pkg,<<"getopt">>,<<"1.0.1">>},3},
+ {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},2},
+ {<<"gpb">>,{pkg,<<"gpb">>,<<"4.19.2">>},3},
+ {<<"gproc">>,{pkg,<<"gproc">>,<<"0.8.0">>},2},
+ {<<"grpc_client">>,
+  {git,"https://github.com/Bluehouse-Technology/grpc_client.git",
+       {ref,"04c24590a23b22ec5bd87e7f4ba92152310a41b6"}},
+  1},
+ {<<"grpc_lib">>,
+  {git,"https://github.com/Bluehouse-Technology/grpc_lib",
+       {ref,"a77686b55b60b052d6c7cd927d04dde429bbdabf"}},
+  2},
+ {<<"grpcbox">>,
+  {git,"https://github.com/andymck/grpcbox.git",
+       {ref,"fbf689bb9c25fc2943155c891974e1f745ce5ac7"}},
+  1},
+ {<<"h3">>,
+  {git,"https://github.com/helium/erlang-h3.git",
+       {ref,"90e1b6ebf93f88702ce8d24d9142833a8401e3ab"}},
+  1},
+ {<<"hbbft">>,
+  {git,"https://github.com/helium/erlang-hbbft.git",
+       {ref,"82f37febbd77225a8965869eeac21398f4e26fe0"}},
+  0},
+ {<<"helium_proto">>,
+  {git,"https://github.com/helium/proto.git",
+       {ref,"6dc60a9933628c3baf9d2f5386481f20a5d79bb8"}},
+  1},
+ {<<"hpack">>,{pkg,<<"hpack_erl">>,<<"0.2.3">>},3},
+ {<<"inert">>,{pkg,<<"inert">>,<<"1.0.3">>},3},
+ {<<"inet_cidr">>,{pkg,<<"erl_cidr">>,<<"1.0.2">>},3},
+ {<<"inet_ext">>,
+  {git,"https://github.com/benoitc/inet_ext",
+       {ref,"e30b65d32711a4b7033fd4ac9b33b3c1c8be8bed"}},
+  2},
+ {<<"intercept">>,{pkg,<<"intercept">>,<<"1.0.0">>},3},
+ {<<"jsonrpc2">>,
+  {git,"https://github.com/zuiderkwast/jsonrpc2-erlang",
+       {ref,"be47c447aba6b94f52fcc46e544664dbbc6cede0"}},
+  0},
+ {<<"jsx">>,
+  {git,"https://github.com/talentdeficit/jsx.git",
+       {ref,"3074d4865b3385a050badf7828ad31490d860df5"}},
+  0},
+ {<<"kvc">>,
+  {git,"https://github.com/etrepum/kvc",
+       {ref,"5f482a8db330c4dcb2d456b6135c740b8ff7eebb"}},
+  0},
+ {<<"lager">>,{pkg,<<"lager">>,<<"3.9.2">>},1},
+ {<<"libp2p">>,
+  {git,"https://github.com/helium/erlang-libp2p.git",
+       {ref,"3ae3ed254d5632ed0d09528c001e5e09814f73e5"}},
+  1},
+ {<<"libp2p_crypto">>,{pkg,<<"libp2p_crypto">>,<<"1.4.1">>},2},
+ {<<"longfi">>,
+  {git,"https://github.com/helium/longfi-erlang",
+       {ref,"6a787a637475b3d3d0ef76e799ed06cb396050d2"}},
+  0},
+ {<<"merkerl">>,
+  {git,"https://github.com/helium/merkerl.git",
+       {ref,"26ddcaf7f3c2c76eebf6f9258822f923ce69cb75"}},
+  1},
+ {<<"multiaddr">>,{pkg,<<"multiaddr">>,<<"1.1.3">>},3},
+ {<<"multihash">>,{pkg,<<"multihash">>,<<"2.1.0">>},3},
+ {<<"nat">>,
+  {git,"https://github.com/benoitc/erlang-nat",
+       {ref,"6136102c176814dd26c11b93ca0ce852b66c4195"}},
+  2},
+ {<<"procket">>,{pkg,<<"procket">>,<<"0.9.5">>},3},
+ {<<"ranch">>,{pkg,<<"ranch">>,<<"1.5.0">>},2},
+ {<<"rand_compat">>,{pkg,<<"rand_compat">>,<<"0.0.3">>},3},
+ {<<"recon">>,{pkg,<<"recon">>,<<"2.5.1">>},0},
+ {<<"relcast">>,
+  {git,"https://github.com/helium/relcast.git",
+       {ref,"9e40445dcd6440c9a2292d0f227d96a86f3d386b"}},
+  2},
+ {<<"rocksdb">>,
+  {git,"https://gitlab.com/vagabond1/erlang-rocksdb",
+       {ref,"e391336db73ca3644050b308d20071fb79667022"}},
+  3},
+ {<<"sibyl">>,
+  {git,"https://github.com/helium/sibyl.git",
+       {ref,"757d96cd359c2f181728181e04ad5e2aa221875c"}},
+  0},
+ {<<"small_ints">>,{pkg,<<"small_ints">>,<<"0.1.0">>},4},
+ {<<"splicer">>,{pkg,<<"splicer">>,<<"0.5.4">>},2},
+ {<<"throttle">>,{pkg,<<"lambda_throttle">>,<<"0.2.0">>},2},
+ {<<"vincenty">>,
+  {git,"https://github.com/helium/vincenty",
+       {ref,"e33268c2a497f218d65e068ccec42e59ff5be996"}},
+  1},
+ {<<"xxhash">>,
+  {git,"https://github.com/pierreis/erlang-xxhash",
+       {ref,"5d222dcb54c9dd8247d4429174126ebda52b0e2d"}},
+  1}]}.
+[
+{pkg_hash,[
+ {<<"acceptor_pool">>, <<"43C20D2ACAE35F0C2BCD64F9D2BDE267E459F0F3FD23DAB26485BF518C281B21">>},
+ {<<"backoff">>, <<"83B72ED2108BA1EE8F7D1C22E0B4A00CFE3593A67DBC792799E8CCE9F42F796B">>},
+ {<<"base32">>, <<"044F6DC95709727CA2176F3E97A41DDAA76B5BC690D3536908618C0CB32616A2">>},
+ {<<"base64url">>, <<"F8C7F2DA04CA9A5D0F5F50258F055E1D699F0E8BF4CFDB30B750865368403CF6">>},
+ {<<"ctx">>, <<"8FF88B70E6400C4DF90142E7F130625B82086077A45364A78D208ED3ED53C7FE">>},
+ {<<"ecc_compact">>, <<"C9696FF16A1D721F2DC8CCD760440B8F45586522974C5C7BD88640822E08AACA">>},
+ {<<"elli">>, <<"089218762A7FF3D20AE81C8E911BD0F73EE4EE0ED85454226D1FC6B4FFF3B4F6">>},
+ {<<"enacl">>, <<"F65DC64D9BFF2D8A534CB77AEF14DA5E7A2FA148987D87856F79A4745C9C2627">>},
+ {<<"erl_base58">>, <<"37710854461D71DF338E73C65776302DB41C4BAB4674D2EC134ED7BCFC7B5552">>},
+ {<<"getopt">>, <<"C73A9FA687B217F2FF79F68A3B637711BB1936E712B521D8CE466B29CBF7808A">>},
+ {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
+ {<<"gpb">>, <<"E841A1C5D5B82B6FBADDD2B6968C66AD48B34ADC3B0D974E55CCA653BD28CCC5">>},
+ {<<"gproc">>, <<"CEA02C578589C61E5341FCE149EA36CCEF236CC2ECAC8691FBA408E7EA77EC2F">>},
+ {<<"hpack">>, <<"17670F83FF984AE6CD74B1C456EDDE906D27FF013740EE4D9EFAA4F1BF999633">>},
+ {<<"inert">>, <<"770365B37739C40D8DC016BE355BFE2E428DA7406A7CBBC792A0651354B78225">>},
+ {<<"inet_cidr">>, <<"4814A5B78B969A5E069B0CECBB102622AB0C459B690053ED94543CD529915A43">>},
+ {<<"intercept">>, <<"1F6C725E6FC070720643BD4D97EE53B1209365C80E520E1F5A1ACB36712A7EB5">>},
+ {<<"lager">>, <<"4CAB289120EB24964E3886BD22323CB5FEFE4510C076992A23AD18CF85413D8C">>},
+ {<<"libp2p_crypto">>, <<"CB93FE834A53059671C547957C1235C9426E5B7EE91D156AD5D90A9710BF4AF0">>},
+ {<<"multiaddr">>, <<"978E58E28F6FACAF428C87AF933612B1E2F3F2775F1794EDA5E831A4EACD2984">>},
+ {<<"multihash">>, <<"F084F7C6BEC062F0C0E82AE18CFDC8DAEC8F4FAA4C8E1ACE0B9C676A9323162F">>},
+ {<<"procket">>, <<"CE91C00CB3F4D627FB3827F46CE68E6A969EA265DF1AFB349C300A07BE4BB16C">>},
+ {<<"ranch">>, <<"F04166F456790FEE2AC1AA05A02745CC75783C2BFB26D39FAF6AEFC9A3D3A58A">>},
+ {<<"rand_compat">>, <<"011646BC1F0B0C432FE101B816F25B9BBB74A085713CEE1DAFD2D62E9415EAD3">>},
+ {<<"recon">>, <<"430FFA60685AC1EFDFB1FE4C97B8767C92D0D92E6E7C3E8621559BA77598678A">>},
+ {<<"small_ints">>, <<"82A824C8794A2DDC73CB5CD00EAD11331DB296521AD16A619C13D668572B868A">>},
+ {<<"splicer">>, <<"B221E3D037CAA9993ABB5C11B709026A7371AF4A7164219241EBC3B68ED331F4">>},
+ {<<"throttle">>, <<"E881B46D9836AFB70F3E2FA3BE9B0140805BA324ED26AA734FF6C5C1568C6CA7">>}]},
+{pkg_hash_ext,[
+ {<<"acceptor_pool">>, <<"0CBCD83FDC8B9AD2EEE2067EF8B91A14858A5883CB7CD800E6FCD5803E158788">>},
+ {<<"backoff">>, <<"CF0CFFF8995FB20562F822E5CC47D8CCF664C5ECDC26A684CBE85C225F9D7C39">>},
+ {<<"base32">>, <<"10A73951D857D8CB1ECEEA8EB96C6941F6A76E105947AD09C2B73977DEE07638">>},
+ {<<"base64url">>, <<"F9B3ADD4731A02A9B0410398B475B33E7566A695365237A6BDEE1BB447719F5C">>},
+ {<<"ctx">>, <<"A14ED2D1B67723DBEBBE423B28D7615EB0BDCBA6FF28F2D1F1B0A7E1D4AA5FC2">>},
+ {<<"ecc_compact">>, <<"3DB649D21AE7FEDF460B4D650B99813B761DD905EED6286420C2B2C7E169A356">>},
+ {<<"elli">>, <<"698B13B33D05661DB9FE7EFCBA41B84825A379CCE86E486CF6AFF9285BE0CCF8">>},
+ {<<"enacl">>, <<"60D329AC3976008F774E21ABA254671104976D61A792287615BB26816F09EA0F">>},
+ {<<"erl_base58">>, <<"41E8EC356C5C5558A45682F61F80725789AE9A11BD1CC7D5C73CDE1E3B546DD2">>},
+ {<<"getopt">>, <<"53E1AB83B9CEB65C9672D3E7A35B8092E9BDC9B3EE80721471A161C10C59959C">>},
+ {<<"goldrush">>, <<"99CB4128CFFCB3227581E5D4D803D5413FA643F4EB96523F77D9E6937D994CEB">>},
+ {<<"gpb">>, <<"3F4CB7F263E94675A598501A6DC96EC17F93ECB28C29BEA3BEA3A71C53A3317A">>},
+ {<<"gproc">>, <<"580ADAFA56463B75263EF5A5DF4C86AF321F68694E7786CB057FD805D1E2A7DE">>},
+ {<<"hpack">>, <<"06F580167C4B8B8A6429040DF36CC93BBA6D571FAEAEC1B28816523379CBB23A">>},
+ {<<"inert">>, <<"EC6462B4BD7085F946BE61AF82DCC08E17ED7894080F00D520EB5009CAC27A24">>},
+ {<<"inet_cidr">>, <<"97046492E5C5BE0D8B92CD275980D667A8D28D9E79B2305828E358CC7D30A935">>},
+ {<<"intercept">>, <<"FC5F5E26A571637B0B80119FE2F1E83DDDEAC8078BD76279C015474AF432B32E">>},
+ {<<"lager">>, <<"7F904D9E87A8CB7E66156ED31768D1C8E26EBA1D54F4BC85B1AA4AC1F6340C28">>},
+ {<<"libp2p_crypto">>, <<"A21C278896DA65E31A2C8FE767784F1493289CD956E172E7BA247EAB75207037">>},
+ {<<"multiaddr">>, <<"980D3EA5EB0EB2EFC51E3D10953F17447D417C49BD2FCD7FC6A2A42D1F66D5EE">>},
+ {<<"multihash">>, <<"E73AD5D0099DBFFB4EE429A78436B605AFE2530ED684AB36BB86733AB65707C8">>},
+ {<<"procket">>, <<"1288BBA5EB6F08EA5DF3DDA9E051BDAC8F4B1E50ADCCA5CF4D726E825AD81BED">>},
+ {<<"ranch">>, <<"86D40FC42AA47BCB6952DDF1DBFD3DA04B5BA69AFB65C322C99845913250B11F">>},
+ {<<"rand_compat">>, <<"CDF7BE2B17308EC245B912C45FE55741F93B6E4F1A24BA6074F7137B0CC09BF4">>},
+ {<<"recon">>, <<"5721C6B6D50122D8F68CCCAC712CAA1231F97894BAB779EFF5FF0F886CB44648">>},
+ {<<"small_ints">>, <<"00B3BFF6C446711F8EA4EA942056F375E0F13C7983CC3950C6EA1DE014C7C416">>},
+ {<<"splicer">>, <<"3FC111BCEC469F4E62B2E7069A2ECFEACB40844D97CAF181D1DD3674EF0919E9">>},
+ {<<"throttle">>, <<"3EACFAAC1C2EBD0F17D77D9E96B1029BF07DED4AC233BA38883D70CDF1FFF740">>}]}
+].
+
+#!/bin/bash
+
+usage() {
+    echo "Usage: $0 [-h] <start SHA> <end SHA>"
+}
+
+all=false
+
+while getopts ":ha" opt; do
+    case ${opt} in
+        a )
+            all=true
+            ;;
+        h )
+            usage
+            exit 0
+            ;;
+        \? )
+            usage
+            exit 1
+            ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+if [ $# -ne 2 ]; then
+    usage
+    exit 1
+fi
+
+if [ $all = false ]; then
+    git_merges="--merges"
+    git_format=""
+else
+    git_merges=""
+    git_format="%H "
+fi
+
+start=$1
+end=$2
+
+base=$(pwd)
+if [ ! -d .repos ]; then
+    mkdir .repos
+fi
+
+cd .repos
+
+echo -n "updating repos... "
+for repo in blockchain libp2p sibyl ecc508 relcast dkg hbbft helium_proto; do
+    case $repo in
+        "helium_proto")
+            realname="proto"
+            ;;
+        "blockchain")
+            realname="blockchain-core"
+            ;;
+        "libp2p")
+            realname="erlang-libp2p"
+            ;;
+        "hbbft")
+            realname="erlang-hbbft"
+            ;;
+        "dkg")
+            realname="erlang-dkg"
+            ;;
+        *)
+            realname=$repo
+            ;;
+    esac
+    if [ ! -d $repo ]; then
+        git clone -q git@github.com:helium/$realname.git $repo
+    else
+        cd $repo
+        git fetch -q origin
+        cd ..
+    fi
+done
+cd ..
+
+echo done
+echo
+
+## grab commit hashes and headlines
+echo "miner changes:"
+git log $git_merges --pretty=format:"${git_format}%s" ${start}...${end}
+echo
+
+from=$(git rev-list -n 1 ${start})
+to=$(git rev-list -n 1 ${end})
+
+## if a commit just bumps a dep like miner or gateway config, ignore
+## the actual message and replace it with the same sort of thing from
+## the dep
+for subdep in blockchain libp2p sibyl ecc508 relcast dkg hbbft helium_proto; do
+    subfrom=$(git diff ${from} ${to} rebar.lock | grep -A4 "\"$subdep\"" | grep "^\- " | \
+                  grep "{ref," | sed -e "s/.*\"\(.*\)\".*/\1/" )
+    subto=$(git diff ${from} ${to} rebar.lock | grep -A4 "\"$subdep\"" | grep "^\+ " | \
+                grep "{ref," | sed -e "s/.*\"\(.*\)\".*/\1/" )
+    if [ -z "${subfrom}" ]; then
+        no_changes="$no_changes $subdep"
+    else
+        echo $subdep from $subfrom to $subto
+        subhere=$(pwd)
+        cd $base/.repos/$subdep/;
+        git log $git_merges --pretty=format:"${git_format}%s" ${subfrom}...${subto};
+        echo
+        cd $subhere
+    fi
+done
+
+echo "no changes for:$no_changes"
+
+#!/bin/bash
+
+#set -e
+
+./all-cmd.sh stop
+
+find _build/default/lib/blockchain/ -name \*beam -exec rm {} +
+make clean && ./rebar3 as test compile
+
+if [ -z "$1" ]
+then
+    echo "Will forge a blockchain from scratch"
+    command="forge"
+else
+    echo "Will use provided $1 genesis file and incorporate the transactions"
+    command="create"
+    old_genesis_file=$1
+fi
+
+if [ -z $(which parallel) ]; then
+    echo "missing GNU parallel, please install it"
+    exit 1
+fi
+
+# default to 8 dev releases
+nodes=$(seq 8)
+
+# remove existing artifacts
+rm -rf _build/testdev+miner*
+
+# build 8 dev releases
+make devrel
+
+start_dev_release() {
+   echo $(./_build/testdev\+miner$1/rel/miner$1/bin/miner$1 daemon)
+   echo "Started: miner$1"
+}
+export -f start_dev_release
+parallel -k --tagstring miner{} start_dev_release ::: $nodes
+
+# peer addresses for node 1
+addresses=($(./_build/testdev\+miner1/rel/miner1/bin/miner1 peer listen --format=csv | tail -n +2))
+echo $addresses
+
+# connect node1 to every _other_ node
+for node in ${nodes[@]}; do
+    if (( $node != 1 )); then
+        for address in ${addresses[@]}; do
+            echo "## Node $node trying to connect to seed node 1 which has listen address: $address"
+            ./_build/testdev\+miner$node/rel/miner$node/bin/miner$node peer connect $address
+        done
+    fi
+done
+
+# get the peer addrs for each node
+peer_addrs=()
+for node in ${nodes[@]}; do
+    peer_addrs+=($(./_build/testdev\+miner$node/rel/miner$node/bin/miner$node peer addr))
+done
+
+# function to join array values
+function join_by { local IFS="$1"; shift; echo "$*"; }
+
+create_genesis_block() {
+    echo $(./_build/testdev\+miner$1/rel/miner$1/bin/miner$1 genesis create $2 $3 $4 $5)
+}
+export -f create_genesis_block
+
+forge_genesis_block() {
+    echo $(./_build/testdev\+miner$1/rel/miner$1/bin/miner$1 genesis forge $2 $3 $4)
+}
+export -f forge_genesis_block
+
+priv_key=$(./_build/testdev\+miner1/rel/miner1/bin/miner1 genesis key)
+echo $priv_key
+proof=($(./_build/testdev\+miner1/rel/miner1/bin/miner1 genesis proof $priv_key | grep -v ":"))
+echo $proof
+if [ "$command" == "create" ]
+then
+    parallel -k --tagstring miner{} create_genesis_block ::: $nodes ::: $old_genesis_file ::: ${proof[1]} ::: ${proof[0]} ::: $(join_by , ${peer_addrs[@]})
+elif [ "$command" == "forge" ]
+then
+    parallel -k --tagstring miner{} forge_genesis_block ::: $nodes ::: ${proof[1]} ::: ${proof[0]} ::: $(join_by , ${peer_addrs[@]})
+else
+    exit 1
+fi
+
+# show which node is in the consensus group
+non_consensus_node=""
+for node in ${nodes[@]}; do
+    if [[ $(./_build/testdev\+miner$node/rel/miner$node/bin/miner$node info in_consensus) = *true* ]]; then
+        echo "miner$node, in_consensus: true"
+    else
+        echo "miner$node, in_consensus: false"
+        non_consensus_node+=" $node"
+    fi
+done
+echo "Node not in consensus: $non_consensus_node"
+
+exported_genesis_file="/tmp/genesis_$(date +%Y%m%d%H%M%S)"
+# get the genesis block from one of the consensus nodes
+LOOP=5
+while [ $LOOP -gt 0 ]; do
+    for node in ${nodes[@]}; do
+        if [[ $(./_build/testdev\+miner$node/rel/miner$node/bin/miner$node info in_consensus) = *true* ]]; then
+            ./_build/testdev\+miner$node/rel/miner$node/bin/miner$node genesis export $exported_genesis_file
+            if [ $? -eq 0 -a -f $exported_genesis_file ]; then
+                LOOP=0
+                break
+            else
+                LOOP=`expr $LOOP - 1`
+            fi
+        fi
+    done
+    sleep 5
+done
+
+if [ -f $exported_genesis_file ]; then
+    echo "Exported Genesis file: $exported_genesis_file"
+
+    echo "Loading Genesis block on $non_consensus_node"
+    for node in $non_consensus_node; do
+        ./_build/testdev\+miner$node/rel/miner$node/bin/miner$node genesis load $exported_genesis_file
+    done
+
+    # check everyone has the chain now
+    for node in ${nodes[@]}; do
+        ./_build/testdev\+miner$node/rel/miner$node/bin/miner$node info height > /dev/null
+        if [[ $? -ne 0 ]]; then
+            ./_build/testdev\+miner$node/rel/miner$node/bin/miner$node genesis load $exported_genesis_file
+        fi
+    done
+else
+    echo "couldn't export genesis file"
+    exit 1
+fi
+
+#!/bin/bash
+
+check_height() {
+    nodes=$(seq 8)
+    for node in ${nodes[@]}; do
+        echo "miner$node, height: "$(./_build/testdev\+miner$node/rel/miner$node/bin/miner$node info height)
+    done
+    echo ""
+}
+
+export -f check_height
+while true; do check_height; sleep 1; done
+
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {}
+}
